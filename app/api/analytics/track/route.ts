@@ -68,12 +68,11 @@ export async function POST(request: NextRequest) {
             is_completed: false,
           });
 
-        // Log session error for debugging (suppressing duplicate key errors which are expected)
         if (sessionError) {
           console.error('Session insert error:', sessionError);
         }
       } else if (action === 'field_focus' && fieldId) {
-        // Fetch current session state
+        // ✅ Corrected fetch block for Supabase JS v2
         const { data: currentSession, error: fetchError } = await supabase
           .from('form_sessions')
           .select('fields_interacted, total_time_spent')

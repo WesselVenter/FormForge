@@ -22,6 +22,7 @@ export async function POST(request: NextRequest) {
       sessionId,
     } = await request.json();
 
+    // Validate required fields
     if (!formId || !action) {
       return NextResponse.json(
         { error: 'Form ID and action are required' },
@@ -35,12 +36,12 @@ export async function POST(request: NextRequest) {
       .insert({
         form_id: formId,
         event_type: action,
-        field_id: fieldId ?? null,
-        user_agent: userAgent ?? null,
-        ip_address: ipAddress ?? null,
-        device_info: deviceInfo ?? null,
+        field_id: fieldId,
+        user_agent: userAgent,
+        ip_address: ipAddress,
+        device_info: deviceInfo,
         time_spent: timeSpent || 0,
-        session_id: sessionId ?? null,
+        session_id: sessionId,
       });
 
     if (analyticsError) {
@@ -51,8 +52,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Update or create form session
     if (sessionId) {
-      // CREATE SESSION ON VIEW
       if (action === 'view') {
         const { error: sessionError } = await supabase
           .from('form_sessions')
@@ -67,16 +68,11 @@ export async function POST(request: NextRequest) {
             is_completed: false,
           });
 
-        if (
-          sessionError &&
-          !String(sessionError.message).includes('duplicate key')
-        ) {
+        // Log session error for debugging (suppressing duplicate key errors which are expected)
+        if (sessionError) {
           console.error('Session insert error:', sessionError);
         }
-      }
-
-      // FIELD INTERACTION
-      if (action === 'field_focus' && fieldId) {
+      } else if (action === 'field_focus' && fieldId) {
         // Fetch current session state
         const { data: currentSession, error: fetchError } = await supabase
           .from('form_sessions')

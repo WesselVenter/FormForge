@@ -22,7 +22,6 @@ export async function POST(request: NextRequest) {
       sessionId,
     } = await request.json();
 
-    // Validate required fields
     if (!formId || !action) {
       return NextResponse.json(
         { error: 'Form ID and action are required' },
@@ -46,105 +45,52 @@ export async function POST(request: NextRequest) {
 
     if (analyticsError) {
       console.error('Analytics insert error:', analyticsError);
-      return NextResponse.json(
-        { error: 'Failed to track analytics' },
-        { status: 500 }
-      );
     }
 
-    // Update or create form session
-    if (sessionId) {
-      // --- VIEW action: create a new session ---
-      if (action === 'view') {
-        const { error: sessionError } = await supabase
-          .from('form_sessions')
-          .insert({
-            form_id: formId,
-            session_id: sessionId,
-            device_info: deviceInfo ?? null,
-            user_agent: userAgent ?? null,
-            ip_address: ipAddress ?? null,
-            fields_interacted: [],
-            total_time_spent: 0,
-            is_completed: false,
-          });
+    if (!sessionId) {
+      return NextResponse.json({
+        message: 'Analytics tracked (no session)',
+      });
+    }
 
-        if (sessionError) {
-          console.error('Session insert error:', sessionError);
-        }
-      }
+    // --- Prepare session upsert payload ---
+    const sessionPayload: any = {
+      form_id: formId,
+      session_id: sessionId,
+      device_info: deviceInfo ?? null,
+      user_agent: userAgent ?? null,
+      ip_address: ipAddress ?? null,
+    };
 
-      // --- FIELD_FOCUS action: update session with field interaction ---
-      else if (action === 'field_focus' && fieldId) {
-        const { data: currentSession, error: fetchError } = await supabase
-          .from('form_sessions')
-          .select('fields_interacted, total_time_spent')
-          .eq('session_id', sessionId)
-          .eq('form_id', formId)
-          .maybeSingle();
+    if (action === 'view') {
+      sessionPayload.fields_interacted = [];
+      sessionPayload.total_time_spent = 0;
+      sessionPayload.is_completed = false;
+    } else if (action === 'field_focus' && fieldId) {
+      // For field_focus, increment total_time_spent and add fieldId to array
+      sessionPayload.total_time_spent = timeSpent || 0;
+      sessionPayload.fields_interacted = [fieldId];
+    } else if (action === 'submit') {
+      sessionPayload.total_time_spent = timeSpent || 0;
+      sessionPayload.is_completed = true;
+      sessionPayload.ended_at = new Date().toISOString();
+    }
 
-        if (!fetchError && currentSession) {
-          const updatedFields = Array.from(
-            new Set([...(currentSession.fields_interacted || []), fieldId])
-          );
+    // --- Upsert session atomically ---
+    const { error: sessionUpsertError } = await supabase
+      .from('form_sessions')
+      .upsert(sessionPayload, {
+        onConflict: ['session_id', 'form_id'],
+        merge: true, // merge new fields into existing row
+      });
 
-          const { error: updateError } = await supabase
-            .from('form_sessions')
-            .eq('session_id', sessionId)
-            .eq('form_id', formId)
-            .update({
-              fields_interacted: updatedFields,
-              total_time_spent:
-                (currentSession.total_time_spent || 0) + (timeSpent || 0),
-            });
-
-          if (updateError) {
-            console.error('Session update error:', updateError);
-          }
-        } else if (fetchError) {
-          console.error('Session fetch error:', fetchError);
-        }
-      }
-
-      // --- SUBMIT action: mark session as completed ---
-      else if (action === 'submit') {
-        const { data: currentSession, error: fetchError } = await supabase
-          .from('form_sessions')
-          .select('total_time_spent')
-          .eq('session_id', sessionId)
-          .eq('form_id', formId)
-          .maybeSingle();
-
-        const totalTime =
-          (currentSession?.total_time_spent || 0) + (timeSpent || 0);
-
-        const { error: completeError } = await supabase
-          .from('form_sessions')
-          .eq('session_id', sessionId)
-          .eq('form_id', formId)
-          .update({
-            is_completed: true,
-            total_time_spent: totalTime,
-            ended_at: new Date().toISOString(),
-          });
-
-        if (fetchError) {
-          console.error('Session fetch error (submit):', fetchError);
-        }
-        if (completeError) {
-          console.error('Session completion error:', completeError);
-        }
-      }
+    if (sessionUpsertError) {
+      console.error('Session upsert error:', sessionUpsertError);
     }
 
     return NextResponse.json({
       message: 'Analytics tracked successfully',
-      data: {
-        formId,
-        action,
-        fieldId,
-        sessionId,
-      },
+      data: { formId, action, fieldId, sessionId },
     });
   } catch (error) {
     console.error('Analytics tracking error:', error);

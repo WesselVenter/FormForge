@@ -54,6 +54,7 @@ export async function POST(request: NextRequest) {
 
     // Update or create form session
     if (sessionId) {
+      // --- VIEW action: create a new session ---
       if (action === 'view') {
         const { error: sessionError } = await supabase
           .from('form_sessions')
@@ -71,13 +72,15 @@ export async function POST(request: NextRequest) {
         if (sessionError) {
           console.error('Session insert error:', sessionError);
         }
-      } else if (action === 'field_focus' && fieldId) {
-        // ✅ Fixed Supabase v2 fetch block
+      }
+
+      // --- FIELD_FOCUS action: update session with field interaction ---
+      else if (action === 'field_focus' && fieldId) {
         const { data: currentSession, error: fetchError } = await supabase
           .from('form_sessions')
           .select('fields_interacted, total_time_spent')
-          .filter('session_id', 'eq', sessionId)
-          .filter('form_id', 'eq', formId)
+          .eq('session_id', sessionId)
+          .eq('form_id', formId)
           .maybeSingle();
 
         if (!fetchError && currentSession) {
@@ -87,13 +90,13 @@ export async function POST(request: NextRequest) {
 
           const { error: updateError } = await supabase
             .from('form_sessions')
+            .eq('session_id', sessionId)
+            .eq('form_id', formId)
             .update({
               fields_interacted: updatedFields,
               total_time_spent:
                 (currentSession.total_time_spent || 0) + (timeSpent || 0),
-            })
-            .filter('session_id', 'eq', sessionId)
-            .filter('form_id', 'eq', formId);
+            });
 
           if (updateError) {
             console.error('Session update error:', updateError);
@@ -103,18 +106,31 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // FORM SUBMISSION
-      if (action === 'submit') {
+      // --- SUBMIT action: mark session as completed ---
+      else if (action === 'submit') {
+        const { data: currentSession, error: fetchError } = await supabase
+          .from('form_sessions')
+          .select('total_time_spent')
+          .eq('session_id', sessionId)
+          .eq('form_id', formId)
+          .maybeSingle();
+
+        const totalTime =
+          (currentSession?.total_time_spent || 0) + (timeSpent || 0);
+
         const { error: completeError } = await supabase
           .from('form_sessions')
+          .eq('session_id', sessionId)
+          .eq('form_id', formId)
           .update({
             is_completed: true,
-            total_time_spent: timeSpent || 0,
+            total_time_spent: totalTime,
             ended_at: new Date().toISOString(),
-          })
-          .filter('session_id', 'eq', sessionId)
-          .filter('form_id', 'eq', formId);
+          });
 
+        if (fetchError) {
+          console.error('Session fetch error (submit):', fetchError);
+        }
         if (completeError) {
           console.error('Session completion error:', completeError);
         }

@@ -72,13 +72,13 @@ export async function POST(request: NextRequest) {
           console.error('Session insert error:', sessionError);
         }
       } else if (action === 'field_focus' && fieldId) {
-        // ✅ Corrected fetch block for Supabase JS v2
+        // ✅ Fixed Supabase v2 fetch block
         const { data: currentSession, error: fetchError } = await supabase
           .from('form_sessions')
           .select('fields_interacted, total_time_spent')
-          .eq('session_id', sessionId)
-          .eq('form_id', formId)
-          .single();
+          .filter('session_id', 'eq', sessionId)
+          .filter('form_id', 'eq', formId)
+          .maybeSingle();
 
         if (!fetchError && currentSession) {
           const updatedFields = Array.from(
@@ -92,8 +92,8 @@ export async function POST(request: NextRequest) {
               total_time_spent:
                 (currentSession.total_time_spent || 0) + (timeSpent || 0),
             })
-            .eq('session_id', sessionId)
-            .eq('form_id', formId);
+            .filter('session_id', 'eq', sessionId)
+            .filter('form_id', 'eq', formId);
 
           if (updateError) {
             console.error('Session update error:', updateError);
@@ -112,8 +112,8 @@ export async function POST(request: NextRequest) {
             total_time_spent: timeSpent || 0,
             ended_at: new Date().toISOString(),
           })
-          .eq('session_id', sessionId)
-          .eq('form_id', formId);
+          .filter('session_id', 'eq', sessionId)
+          .filter('form_id', 'eq', formId);
 
         if (completeError) {
           console.error('Session completion error:', completeError);
